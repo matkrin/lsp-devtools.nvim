@@ -1,12 +1,14 @@
 local STATE = require("lsp-devtools.state").state
+local devtools = require("lsp-devtools")
+local event_kind = require("lsp-devtools").event_kind
 
 local M = {}
 
----@type integer|nil
+---@type integer | nil
 local timeline_buf = nil
 
 ---@type boolean
-local follow_cursor = true
+local autoscroll = devtools.config.autoscroll
 
 ---@type integer
 local ns = vim.api.nvim_create_namespace("lspdev")
@@ -49,7 +51,17 @@ end
 ---@param event LspDevtoolsEvent Event to format
 ---@return string  # The formatted event timeline entry
 local function format_timeline_event(event)
-    local icon = event.error and "✖" or (event.end_time and "←" or "→")
+    local icon = "  "
+    if event.kind == event_kind.CLIENT_NOTIFICATION then
+        icon = "C!"
+    elseif event.kind == event_kind.SERVER_NOTIFICATION then
+        icon = "S!"
+    elseif event.kind == event_kind.REQUEST then
+        icon = event.end_time and "← " or "→ "
+    end
+    if event.error then
+        icon = "✖ "
+    end
     local duration = event.end_time and string.format(" %dms", event.end_time - event.start_time) or ""
     return string.format("%s %-30s%s", icon, event.method, duration)
 end
@@ -64,7 +76,7 @@ function M.render_timeline()
     local win = vim.fn.bufwinid(timeline_buf)
     local cursor = nil
 
-    if win ~= -1 and follow_cursor then
+    if win ~= -1 and autoscroll then
         local last_line = vim.api.nvim_buf_line_count(timeline_buf)
         vim.api.nvim_win_set_cursor(win, { last_line, 0 })
     end
@@ -80,7 +92,7 @@ function M.render_timeline()
     vim.api.nvim_buf_clear_namespace(timeline_buf, ns, 0, -1)
 
     for i, ev in ipairs(STATE.events) do
-        if ev.end_time and (ev.end_time - ev.start_time) > 100 then
+        if ev.end_time and (ev.end_time - ev.start_time) > devtools.config.slow_request_threshold then
             vim.hl.range(timeline_buf, ns, "WarningMsg", { i - 1, 0 }, { i - 1, -1 })
         end
     end
@@ -95,18 +107,18 @@ local function set_keymaps(buf)
     -- Inspect
     vim.keymap.set("n", "<CR>", function()
         local line = vim.fn.line(".")
-        local ev = STATE.events[line]
-        if ev then
-            M.open_inspector(ev)
+        local event = STATE.events[line]
+        if event then
+            M.open_inspector(event)
         end
     end, { buffer = buf, desc = "Inspect event under cursor in new split" })
 
     -- Replay
     vim.keymap.set("n", "r", function()
         local line = vim.fn.line(".")
-        local ev = STATE.events[line]
-        if ev then
-            M.replay(ev)
+        local event = STATE.events[line]
+        if event then
+            M.replay(event)
         end
     end, { buffer = buf, desc = "Replay an event" })
 
@@ -117,8 +129,8 @@ local function set_keymaps(buf)
 
     -- Toggle auto scroll
     vim.keymap.set("n", "t", function()
-        follow_cursor = not follow_cursor
-        vim.notify("LspDev autoscroll: " .. follow_cursor, vim.log.levels.INFO)
+        autoscroll = not autoscroll
+        vim.notify("LspDev autoscroll: " .. tostring(autoscroll), vim.log.levels.INFO)
     end, { buffer = timeline_buf, desc = "Toggle auto-scroll of timeline" })
 end
 
@@ -161,11 +173,11 @@ function M.open()
             local last_line = vim.api.nvim_buf_line_count(timeline_buf)
             local cursor = vim.api.nvim_win_get_cursor(win)[1]
 
-            -- if user is NOT near bottom -> disable follow mode
+            -- If user is NOT near bottom -> disable follow mode
             if cursor < last_line - 2 then
-                follow_cursor = false
+                autoscroll = false
             else
-                follow_cursor = true
+                autoscroll = true
             end
         end,
     })
@@ -229,6 +241,10 @@ function M.replay(event)
     local client = vim.lsp.get_client_by_id(event.client_id)
     if not client then
         vim.notify("LspDev - Error: No client", vim.log.levels.ERROR)
+        return
+    end
+    if event.kind ~= event_kind.REQUEST then
+        vim.notify("LspDev - Only requests can be replayed", vim.log.levels.WARN)
         return
     end
 

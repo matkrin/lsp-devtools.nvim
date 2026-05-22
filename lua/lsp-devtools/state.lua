@@ -1,17 +1,21 @@
----@alias LspJson table<string, any>|any[]
+local config = require("lsp-devtools").config
+
+---@alias LspJson table<string, any> | any[]
 
 ---@class LspDevtoolsEvent
 ---@field id integer
+---@field kind string
 ---@field method string
----@field params LspJson|nil
----@field result LspJson|nil
----@field error table|nil
+---@field params LspJson | nil
+---@field result LspJson | nil
+---@field error table | nil
 ---@field start_time number
----@field end_time number|nil
+---@field end_time number | nil
 ---@field client_id integer
 
 
 local M = {}
+
 
 ---@class LspDevtoolsState
 ---@field events LspDevtoolsEvent[]
@@ -19,29 +23,38 @@ local M = {}
 ---@field next_id integer
 local state = {
     events = {},
-    max = 300,
     next_id = 1,
 }
 
+--- Get a current time for measurement of intervals
 function M.now()
     return vim.loop.hrtime() / 1e6 -- ms
 end
 
----@param ev LspDevtoolsEvent
-function state:add_event(ev)
-    table.insert(self.events, ev)
-    if #self.events > self.max then
+--- Add and event to state
+---@param event LspDevtoolsEvent
+function state:add_event(event)
+    if not config.filter(event) then
+        return
+    end
+
+    table.insert(self.events, event)
+
+    if #self.events > config.max_events then
         table.remove(self.events, 1)
     end
 end
 
+--- Create an event and return it to the caller
+---@param kind string
 ---@param method string
 ---@param params table|nil
 ---@param client_id integer
 ---@return LspDevtoolsEvent
-function M.new_event(method, params, client_id)
+function M.new_event(kind, method, params, client_id)
     local ev = {
         id = state.next_id,
+        kind = kind,
         method = method,
         params = params,
         result = nil,

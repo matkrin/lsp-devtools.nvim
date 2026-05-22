@@ -1,10 +1,36 @@
 local M = {}
 
-local ui = require("lsp-devtools.ui")
 
-function M.setup()
+---@class LspDevtoolsEventKind
+---@field REQUEST "request"
+---@field CLIENT_NOTIFICATION "client_notification"
+---@field SERVER_NOTIFICATION "server_notification"
+M.event_kind = {
+    REQUEST = "request",
+    CLIENT_NOTIFICATION = "client_notification",
+    SERVER_NOTIFICATION = "server_notification",
+}
+
+
+---@class LspDevtoolsConfig
+---@field max_events integer  Maximum stored event
+---@field slow_request_threshold integer  Threshold used to mark slow requests
+---@field autoscroll boolean  Autoscroll of timeline
+---@field filter fun(event:LspDevtoolsEvent):boolean  Call back for filtering events
+M.config = {
+    max_events = 300,
+    slow_request_threshold = 200,
+    autoscroll = true,
+    filter = function(_)
+        return true
+    end,
+}
+
+function M.setup(opts)
+    M.config = vim.tbl_deep_extend("force", M.config, opts or {})
+
     vim.api.nvim_create_user_command("LspDev", function()
-        ui.open()
+        require("lsp-devtools.ui").open()
     end, {})
 
     vim.api.nvim_create_autocmd("LspAttach", {
